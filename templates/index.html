@@ -4,10 +4,10 @@
     <title>Interview Analyzer</title>
 
     <!-- MediaPipe -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils" defer></script>
 </head>
 <body>
 
@@ -28,6 +28,7 @@
 <h3 id="final"></h3>
 
 <script>
+window.onload = function() {
 
 let session_id = null;
 let interval = null;
@@ -294,6 +295,7 @@ document.getElementById("stopBtn").onclick = async function () {
     // 🔥 FINAL DISPLAY
     document.getElementById("final").innerText =
         `Avg Eye: ${avgEye.toFixed(1)} | Avg Gesture: ${avgGesture.toFixed(1)} | Expression: ${expressionFeedback}`;
+};
 };
 
 </script>
