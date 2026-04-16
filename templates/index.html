@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Interview Analyzer</title>
+
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+</head>
+<body>
+
+<h2>Interview Analyzer</h2>
+
+<video id="video" width="400" autoplay></video>
+
+<br><br>
+
+<button id="startBtn">Start Interview</button>
+<button id="stopBtn">Stop Interview</button>
+
+<h3>Live Stats</h3>
+<p>Eye Contact: <span id="eye">0</span></p>
+<p>Gesture: <span id="gest">0</span></p>
+<p>Expression: <span id="exp">Neutral</span></p>
+
+<h3 id="final"></h3>
+
+<script>
+
+let session_id = null;
+let interval = null;
+
+const videoElement = document.getElementById("video");
+
+// Scores
+let eyeScore = 0;
+let gestureScore = 0;
+
+// 🔥 Sampling storage
+let eyeSamples = [];
+let gestureSamples = [];
+let samplingInterval = null;
+
+// 🔥 NEW: Expression tracking
+let expressionSamples = [];
+let currentExpression = "neutral";
+
+
+// -------- FACE --------
+const faceMesh = new FaceMesh({
+    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+});
+
+faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(results => {
+
+    if (results.multiFaceLandmarks.length > 0) {
+
+        let landmarks = results.multiFaceLandmarks[0];
+
+        let nose = landmarks[1];
+
+        if (nose.x > 0.4 && nose.x < 0.6) {
+            eyeScore += 0.2;
+        } else {
+            eyeScore -= 0.3;
+        }
+
+        // 🔥 EXPRESSION DETECTION
+        // 🔥 IMPROVED EXPRESSION DETECTION
+
+        let leftMouth = landmarks[61];
+        let rightMouth = landmarks[291];
+        let topLip = landmarks[13];
+        let bottomLip = landmarks[14];
+
+        // distances
+        let mouthWidth = Math.abs(leftMouth.x - rightMouth.x);
+        let mouthHeight = Math.abs(topLip.y - bottomLip.y);
+
+        // avoid divide issues
+        if (mouthHeight === 0) mouthHeight = 0.0001;
+
+        let smileRatio = mouthWidth / mouthHeight;
+
+        // openness check
+        let isMouthOpen = mouthHeight > 0.025;
+
+        // curve detection (corners slightly above lip center)
+        let lipCenterY = (topLip.y + bottomLip.y) / 2;
+        let cornerLift =
+            (lipCenterY - leftMouth.y) +
+            (lipCenterY - rightMouth.y);
+
+        // -------- FINAL CLASSIFICATION --------
+
+        if (smileRatio > 3.0 && cornerLift > 0.01 && !isMouthOpen) {
+            currentExpression = "smile";
+        } 
+        else if (smileRatio > 2.4 && cornerLift > 0) {
+            currentExpression = "neutral";
+        } 
+        else if (isMouthOpen) {
+            currentExpression = "neutral";
+        } 
+        else {
+            currentExpression = "blank";
+        }
+
+    } else {
+        eyeScore -= 0.5;
+        currentExpression = "blank"; // no face = no engagement
+    }
+
+    if (eyeScore > 10) eyeScore = 10;
+    if (eyeScore < 0) eyeScore = 0;
+
+    document.getElementById("eye").innerText = Math.round(eyeScore);
+    // 🔥 REAL-TIME EXPRESSION DISPLAY
+    let expText = "";
+
+    if (currentExpression === "smile") {
+        expText = "Smile 🙂";
+    } else if (currentExpression === "neutral") {
+        expText = "Neutral 😐";
+    } else {
+        expText = "Low/Blank 😶";
+    }
+
+    document.getElementById("exp").innerText = expText;
+});
+
+// -------- HANDS --------
+const hands = new Hands({
+    locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }
+});
+
+hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+});
+
+let handPresent = false;
+let prevX = null;
+let prevY = null;
+
+hands.onResults(results => {
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+
+        let hand = results.multiHandLandmarks[0];
+        let x = hand[0].x;
+        let y = hand[0].y;
+
+        if (!handPresent) {
+            gestureScore += 0.5;
+            handPresent = true;
+        }
+
+        if (prevX !== null && prevY !== null) {
+
+            let dx = Math.abs(x - prevX);
+            let dy = Math.abs(y - prevY);
+
+            if (dx > 0.05 || dy > 0.05) {
+                gestureScore += 0.5;
+            }
+        }
+
+        prevX = x;
+        prevY = y;
+
+    } else {
+        handPresent = false;
+        prevX = null;
+        prevY = null;
+    }
+
+    gestureScore -= 0.01;
+
+    if (gestureScore > 10) gestureScore = 10;
+    if (gestureScore < 0) gestureScore = 0;
+
+    document.getElementById("gest").innerText = gestureScore.toFixed(1);
+});
+
+// -------- CAMERA --------
+const camera = new Camera(videoElement, {
+    onFrame: async () => {
+        await faceMesh.send({ image: videoElement });
+        try {
+            await hands.send({ image: videoElement });
+        } catch (e) {}
+    },
+    width: 640,
+    height: 480
+});
+
+camera.start();
+
+// -------- START --------
+document.getElementById("startBtn").onclick = async function () {
+
+    let res = await fetch('/start');
+    let data = await res.json();
+    session_id = data.session_id;
+
+    if (interval) clearInterval(interval);
+
+    // 🔥 SAMPLING (every 5 sec)
+    samplingInterval = setInterval(function () {
+        eyeSamples.push(eyeScore);
+        gestureSamples.push(gestureScore);
+        expressionSamples.push(currentExpression); // 🔥 added
+    }, 5000);
+
+    interval = setInterval(function () {
+
+        fetch('/score', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: session_id,
+                eye_contact: eyeScore,
+                expression: 0,
+                gesture: gestureScore
+            })
+        });
+
+    }, 1000);
+};
+
+// -------- STOP --------
+document.getElementById("stopBtn").onclick = async function () {
+
+    clearInterval(interval);
+    clearInterval(samplingInterval);
+
+    let res = await fetch('/final', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id })
+    });
+
+    let data = await res.json();
+
+    function average(arr) {
+        if (arr.length === 0) return 0;
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
+    let avgEye = average(eyeSamples);
+    let avgGesture = average(gestureSamples);
+
+    // 🔥 EXPRESSION FEEDBACK
+    function getExpressionFeedback(samples) {
+
+        let counts = { smile: 0, neutral: 0, blank: 0 };
+
+        samples.forEach(e => counts[e]++);
+
+        let total = samples.length;
+        if (total === 0) return "No face detected.";
+
+        let smilePct = (counts.smile / total) * 100;
+        let neutralPct = (counts.neutral / total) * 100;
+        let blankPct = (counts.blank / total) * 100;
+
+        if (smilePct > 50) {
+            return "You appeared friendly and expressive.";
+        } else if (neutralPct > 50) {
+            return "You maintained a balanced and professional expression.";
+        } else if (blankPct > 40) {
+            return "You appeared low on expression. Try to show more engagement.";
+        } else {
+            return "You had a mix of expressions. Maintain consistency.";
+        }
+    }
+
+    let expressionFeedback = getExpressionFeedback(expressionSamples);
+
+    // 🔥 FINAL DISPLAY
+    document.getElementById("final").innerText =
+        `Avg Eye: ${avgEye.toFixed(1)} | Avg Gesture: ${avgGesture.toFixed(1)} | Expression: ${expressionFeedback}`;
+};
+
+</script>
+
+</body>
+</html>
