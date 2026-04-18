@@ -1,322 +1,302 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Interview Trainer</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body {
-      background: #f9fafb;
-      font-family: "Inter", sans-serif;
-      display: flex;
-      justify-content: center;
-      padding: 40px 20px;
-    }
-    .fade-in { animation: fadeIn 0.5s ease-in-out; }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .gradient-text {
-      background: linear-gradient(90deg, #2563eb, #7c3aed);
-      background-clip: text;
-      -webkit-background-clip: text;
-      color: transparent;
-      -webkit-text-fill-color: transparent;
-    }
+    <title>Interview Analyzer</title>
 
-    .loading {
-      border: 4px solid #e5e7eb;
-      border-top: 4px solid #2563eb;
-      border-radius: 50%;
-      width: 32px; height: 32px;
-      animation: spin 0.9s linear infinite;
-      margin: 20px auto;
-    }
-    @keyframes spin { 0%{transform:rotate(0)}100%{transform:rotate(360deg)} }
-  </style>
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
 </head>
 <body>
-  <div class="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-8">
-    <h1 class="text-3xl font-bold mb-2 gradient-text">AI Interview Trainer</h1>
-    <p class="text-gray-600 mb-6">Answer one question at a time — by typing or speaking. Get instant evaluation and feedback.</p>
 
-    <div class="mb-6">
-      <label for="job" class="block text-lg font-semibold mb-2 text-gray-800">Job description</label>
-      <textarea id="job" rows="3" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" placeholder="e.g., Product Manager at Spotify"></textarea>
-    </div>
+<h2>Interview Analyzer</h2>
 
-    <div class="flex gap-3 mb-6">
-      <button id="startBtn" class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition-all">Start Interview</button>
-      <button id="resetBtn" class="bg-gray-200 px-5 py-2 rounded-md hover:bg-gray-300 transition-all">Reset</button>
-    </div>
+<video id="video" width="400" autoplay></video>
 
-    <div id="loading" class="hidden text-center">
-      <div class="loading"></div>
-      <p class="text-gray-500 mt-2">Preparing your interview questions...</p>
-    </div>
+<br><br>
 
-    <div id="qaSection" class="hidden fade-in">
-      <h2 id="questionHeader" class="text-lg font-semibold mb-2 text-gray-800"></h2>
-      <p id="questionText" class="text-gray-800 mb-4"></p>
+<button id="startBtn">Start Interview</button>
+<button id="stopBtn">Stop Interview</button>
 
-      <label for="answer" class="block text-gray-700 font-medium mb-2">Your answer</label>
-      <textarea id="answer" rows="5" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"></textarea>
+<h3>Live Stats</h3>
+<p>Eye Contact: <span id="eye">0</span></p>
+<p>Gesture: <span id="gest">0</span></p>
+<p>Expression: <span id="exp">Neutral</span></p>
 
-      <div class="flex gap-3 mt-4">
-        <button id="micBtn" class="bg-red-500 text-white px-5 py-2 rounded-md hover:bg-red-600 transition-all">🎙️ Speak</button>
-        <button id="submitBtn" class="bg-green-600 text-white px-5 py-2 rounded-md hover:bg-green-700 transition-all">Submit Answer</button>
-        <button id="nextBtn" class="bg-blue-500 text-white px-5 py-2 rounded-md hover:bg-blue-600 transition-all hidden">Next Question</button>
-      </div>
-    </div>
+<h3 id="final"></h3>
 
-    <div id="evaluation" class="hidden mt-6 bg-white p-6 rounded-lg shadow-md fade-in">
-      <h2 class="text-xl font-semibold mb-4 text-gray-800">Evaluation Result</h2>
-      <div id="scoreGrid" class="grid grid-cols-2 gap-4"></div>
-      <p id="totalScore" class="text-lg font-semibold text-gray-800 mt-4"></p>
+<script>
 
-      <div id="feedbackSection" class="mt-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Feedback</h3>
-        <p id="summaryText" class="text-gray-700 leading-relaxed"></p>
-      </div>
+let session_id = null;
+let interval = null;
 
-      <div id="tipsSection" class="mt-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Improvement Tips</h3>
-        <ul id="improvementList" class="list-disc list-inside text-gray-700"></ul>
-      </div>
-    </div>
+const videoElement = document.getElementById("video");
 
-    <div id="summaryReport" class="hidden mt-8 bg-white p-6 rounded-xl shadow-md fade-in">
-      <h2 class="text-2xl font-bold mb-4 gradient-text">Final Summary Report</h2>
-      <p id="overallScore" class="text-lg text-gray-800 font-semibold mb-2"></p>
-      <p id="questionCount" class="text-gray-700 mb-2"></p>
-      <div id="averageBreakdown" class="text-gray-700 mb-4"></div>
-      <p id="finalRemarks" class="text-gray-800 font-medium mt-4"></p>
-    </div>
+// Scores
+let eyeScore = 0;
+let gestureScore = 0;
 
-    <p class="text-gray-500 mt-8 text-sm text-center">Practice regularly — clarity, confidence, and structure improve with time.</p>
-  </div>
+// 🔥 Sampling storage
+let eyeSamples = [];
+let gestureSamples = [];
+let samplingInterval = null;
 
-  <script>
-const startBtn = document.getElementById("startBtn");
-const resetBtn = document.getElementById("resetBtn");
-const loadingDiv = document.getElementById("loading");
-const qaSection = document.getElementById("qaSection");
-const questionHeader = document.getElementById("questionHeader");
-const questionText = document.getElementById("questionText");
-const submitBtn = document.getElementById("submitBtn");
-const nextBtn = document.getElementById("nextBtn");
-const micBtn = document.getElementById("micBtn");
-const evaluationDiv = document.getElementById("evaluation");
-const summaryDiv = document.getElementById("summaryReport");
-const answerBox = document.getElementById("answer");
+// 🔥 NEW: Expression tracking
+let expressionSamples = [];
+let currentExpression = "neutral";
 
-let questions = [], currentIndex = 0, totalScores = [], categoryScores = {};
 
-// ----------- START INTERVIEW -----------
-startBtn.addEventListener("click", async () => {
-  const job = document.getElementById("job").value.trim();
-  if (!job) return alert("Please enter a job description.");
-  loadingDiv.classList.remove("hidden");
-
-  try {
-    const res = await fetch("/generate", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({job_description: job})
-    });
-    const data = await res.json();
-    loadingDiv.classList.add("hidden");
-
-    if (data.questions) {
-      questions = data.questions;
-      currentIndex = 0; totalScores = []; categoryScores = {};
-      showQuestion();
-    } else alert("Failed to load questions.");
-  } catch {
-    loadingDiv.classList.add("hidden");
-    alert("Error generating questions.");
-  }
+// -------- FACE --------
+const faceMesh = new FaceMesh({
+    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
 });
 
-function showQuestion() {
-  qaSection.classList.remove("hidden");
-  evaluationDiv.classList.add("hidden");
-  summaryDiv.classList.add("hidden");
+faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+});
 
-  const q = questions[currentIndex];
-  questionHeader.innerText = `Question ${currentIndex + 1} of ${questions.length}`;
-  questionText.innerText = q;
-  answerBox.value = "";
+faceMesh.onResults(results => {
 
-  submitBtn.classList.remove("hidden");
-  nextBtn.classList.add("hidden");
+    if (results.multiFaceLandmarks.length > 0) {
 
-  finalTranscript = "";
-}
+        let landmarks = results.multiFaceLandmarks[0];
 
-// ----------- BROWSER SPEECH (REPLACED PART) -----------
-let recognition;
-let isRecording = false;
-let finalTranscript = "";
+        let nose = landmarks[1];
 
-if ("webkitSpeechRecognition" in window) {
-  recognition = new webkitSpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
+        if (nose.x > 0.4 && nose.x < 0.6) {
+            eyeScore += 0.2;
+        } else {
+            eyeScore -= 0.3;
+        }
 
-  recognition.onresult = function (event) {
-  let interim = "";
+        // 🔥 EXPRESSION DETECTION
+        // 🔥 IMPROVED EXPRESSION DETECTION
 
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    let text = event.results[i][0].transcript.trim();
+        let leftMouth = landmarks[61];
+        let rightMouth = landmarks[291];
+        let topLip = landmarks[13];
+        let bottomLip = landmarks[14];
 
-    if (event.results[i].isFinal) {
-      // allow short fillers always
-      if (text.length <= 4) {
-        finalTranscript += " " + text;
-      } 
-      // prevent large duplicate sentences
-      else if (!finalTranscript.includes(text)) {
-        finalTranscript += " " + text;
-      }
+        // distances
+        let mouthWidth = Math.abs(leftMouth.x - rightMouth.x);
+        let mouthHeight = Math.abs(topLip.y - bottomLip.y);
+
+        // avoid divide issues
+        if (mouthHeight === 0) mouthHeight = 0.0001;
+
+        let smileRatio = mouthWidth / mouthHeight;
+
+        // openness check
+        let isMouthOpen = mouthHeight > 0.025;
+
+        // curve detection (corners slightly above lip center)
+        let lipCenterY = (topLip.y + bottomLip.y) / 2;
+        let cornerLift =
+            (lipCenterY - leftMouth.y) +
+            (lipCenterY - rightMouth.y);
+
+        // -------- FINAL CLASSIFICATION --------
+
+        if (smileRatio > 3.0 && cornerLift > 0.01 && !isMouthOpen) {
+            currentExpression = "smile";
+        } 
+        else if (smileRatio > 2.4 && cornerLift > 0) {
+            currentExpression = "neutral";
+        } 
+        else if (isMouthOpen) {
+            currentExpression = "neutral";
+        } 
+        else {
+            currentExpression = "blank";
+        }
+
     } else {
-      interim += text;
+        eyeScore -= 0.5;
+        currentExpression = "blank"; // no face = no engagement
     }
-  }
 
-  answerBox.value = (finalTranscript + " " + interim).trim();
+    if (eyeScore > 10) eyeScore = 10;
+    if (eyeScore < 0) eyeScore = 0;
+
+    document.getElementById("eye").innerText = Math.round(eyeScore);
+    // 🔥 REAL-TIME EXPRESSION DISPLAY
+    let expText = "";
+
+    if (currentExpression === "smile") {
+        expText = "Smile 🙂";
+    } else if (currentExpression === "neutral") {
+        expText = "Neutral 😐";
+    } else {
+        expText = "Low/Blank 😶";
+    }
+
+    document.getElementById("exp").innerText = expText;
+});
+
+// -------- HANDS --------
+const hands = new Hands({
+    locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }
+});
+
+hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+});
+
+let handPresent = false;
+let prevX = null;
+let prevY = null;
+
+hands.onResults(results => {
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+
+        let hand = results.multiHandLandmarks[0];
+        let x = hand[0].x;
+        let y = hand[0].y;
+
+        if (!handPresent) {
+            gestureScore += 0.5;
+            handPresent = true;
+        }
+
+        if (prevX !== null && prevY !== null) {
+
+            let dx = Math.abs(x - prevX);
+            let dy = Math.abs(y - prevY);
+
+            if (dx > 0.05 || dy > 0.05) {
+                gestureScore += 0.5;
+            }
+        }
+
+        prevX = x;
+        prevY = y;
+
+    } else {
+        handPresent = false;
+        prevX = null;
+        prevY = null;
+    }
+
+    gestureScore -= 0.01;
+
+    if (gestureScore > 10) gestureScore = 10;
+    if (gestureScore < 0) gestureScore = 0;
+
+    document.getElementById("gest").innerText = gestureScore.toFixed(1);
+});
+
+// -------- CAMERA --------
+const camera = new Camera(videoElement, {
+    onFrame: async () => {
+        await faceMesh.send({ image: videoElement });
+        try {
+            await hands.send({ image: videoElement });
+        } catch (e) {}
+    },
+    width: 640,
+    height: 480
+});
+
+camera.start();
+
+// -------- START --------
+document.getElementById("startBtn").onclick = async function () {
+
+    let res = await fetch('/start');
+    let data = await res.json();
+    session_id = data.session_id;
+
+    if (interval) clearInterval(interval);
+
+    // 🔥 SAMPLING (every 5 sec)
+    samplingInterval = setInterval(function () {
+        eyeSamples.push(eyeScore);
+        gestureSamples.push(gestureScore);
+        expressionSamples.push(currentExpression); // 🔥 added
+    }, 5000);
+
+    interval = setInterval(function () {
+
+        fetch('/score', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: session_id,
+                eye_contact: eyeScore,
+                expression: 0,
+                gesture: gestureScore
+            })
+        });
+
+    }, 1000);
 };
 
-  recognition.onerror = function (event) {
-    console.error("Speech error:", event.error);
-  };
+// -------- STOP --------
+document.getElementById("stopBtn").onclick = async function () {
 
-  recognition.onend = function () {
-    isRecording = false;
-    micBtn.textContent = "🎙️ Speak";
-  };
-}
+    clearInterval(interval);
+    clearInterval(samplingInterval);
 
-micBtn.addEventListener("click", () => {
-  if (!recognition) {
-    alert("Speech not supported in this browser (use Chrome)");
-    return;
-  }
-
-  if (isRecording) {
-    recognition.stop();
-    isRecording = false;
-    micBtn.textContent = "🎙️ Speak";
-  } else {
-    recognition.start();
-    isRecording = true;
-    micBtn.textContent = "🛑 Stop";
-  }
-});
-
-// ----------- SUBMIT -----------
-submitBtn.addEventListener("click", async () => {
-  const question = questions[currentIndex];
-  const answer = answerBox.value.trim();
-  if (!answer) return alert("Please type or speak your answer first.");
-
-  submitBtn.disabled = true;
-  submitBtn.innerText = "Evaluating...";
-  evaluationDiv.classList.add("hidden");
-
-  const res = await fetch("/evaluate", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({question, answer})
-  });
-  const data = await res.json();
-
-  submitBtn.disabled = false;
-  submitBtn.innerText = "Submit Answer";
-
-  if (data.evaluation) showEvaluation(data.evaluation);
-  else alert("Error evaluating answer.");
-});
-
-// ----------- EVALUATION -----------
-function showEvaluation(ev) {
-  evaluationDiv.classList.remove("hidden");
-  evaluationDiv.classList.add("fade-in");
-
-  const grid = document.getElementById("scoreGrid");
-  grid.innerHTML = "";
-  let total = 0, count = 0;
-
-  if (ev.scores) {
-    Object.entries(ev.scores).forEach(([k,v])=>{
-      grid.innerHTML += `<div class="bg-gray-50 p-3 rounded-md shadow-sm flex justify-between">
-        <span class="font-medium text-gray-800">${k}</span>
-        <span class="text-blue-600 font-semibold">${v}/10</span></div>`;
-      total+=v; count++;
-      if(!categoryScores[k]) categoryScores[k]=[];
-      categoryScores[k].push(v);
+    let res = await fetch('/final', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id })
     });
-  }
 
-  const totalPercent = ev.total || Math.round((total/(count*10))*100);
-  totalScores.push(totalPercent);
+    let data = await res.json();
 
-  document.getElementById("totalScore").innerHTML =
-    `Total Score: <span class='text-blue-600'>${totalPercent}/100</span>`;
+    function average(arr) {
+        if (arr.length === 0) return 0;
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
 
-  document.getElementById("summaryText").innerText = ev.summary || "";
+    let avgEye = average(eyeSamples);
+    let avgGesture = average(gestureSamples);
 
-  const tipsList = document.getElementById("improvementList");
-  tipsList.innerHTML = "";
-  if (ev.improvement_tips) {
-    ev.improvement_tips.forEach(t => tipsList.innerHTML += `<li>${t}</li>`);
-  }
+    // 🔥 EXPRESSION FEEDBACK
+    function getExpressionFeedback(samples) {
 
-  nextBtn.classList.remove("hidden");
-}
+        let counts = { smile: 0, neutral: 0, blank: 0 };
 
-// ----------- NEXT -----------
-nextBtn.addEventListener("click", ()=>{
-  if(currentIndex < questions.length-1){
-    currentIndex++;
-    showQuestion();
-  } else {
-    qaSection.classList.add("hidden");
-    evaluationDiv.classList.add("hidden");
-    showSummaryReport();
-  }
-});
+        samples.forEach(e => counts[e]++);
 
-// ----------- SUMMARY -----------
-function showSummaryReport() {
-  summaryDiv.classList.remove("hidden");
-  summaryDiv.classList.add("fade-in");
+        let total = samples.length;
+        if (total === 0) return "No face detected.";
 
-  const avgScore = Math.round(totalScores.reduce((a,b)=>a+b,0)/totalScores.length);
+        let smilePct = (counts.smile / total) * 100;
+        let neutralPct = (counts.neutral / total) * 100;
+        let blankPct = (counts.blank / total) * 100;
 
-  document.getElementById("overallScore").innerHTML =
-    `Overall Score: <span class='text-blue-600 font-semibold'>${avgScore}/100</span>`;
+        if (smilePct > 50) {
+            return "You appeared friendly and expressive.";
+        } else if (neutralPct > 50) {
+            return "You maintained a balanced and professional expression.";
+        } else if (blankPct > 40) {
+            return "You appeared low on expression. Try to show more engagement.";
+        } else {
+            return "You had a mix of expressions. Maintain consistency.";
+        }
+    }
 
-  document.getElementById("questionCount").innerText =
-    `Questions Answered: ${totalScores.length}`;
+    let expressionFeedback = getExpressionFeedback(expressionSamples);
 
-  const breakdownDiv=document.getElementById("averageBreakdown");
-  breakdownDiv.innerHTML="<strong>Category Averages:</strong><br>";
+    // 🔥 FINAL DISPLAY
+    document.getElementById("final").innerText =
+        `Avg Eye: ${avgEye.toFixed(1)} | Avg Gesture: ${avgGesture.toFixed(1)} | Expression: ${expressionFeedback}`;
+};
 
-  for(const[k,v] of Object.entries(categoryScores)){
-    const avg=(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1);
-    breakdownDiv.innerHTML+=`${k}: <span class='text-blue-600 font-medium'>${avg}/10</span><br>`;
-  }
-
-  document.getElementById("finalRemarks").innerText =
-    avgScore>=80 ? "Excellent! You're interview-ready." :
-    avgScore>=60 ? "Good job — refine structure & clarity." :
-    "Keep practicing for stronger communication and depth.";
-}
-
-resetBtn.addEventListener("click",()=>location.reload());
 </script>
+
 </body>
 </html>
